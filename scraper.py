@@ -1,5 +1,19 @@
 import requests, bs4, xlwt, time, re
 from xlwt import Workbook
+from stem import Signal
+from stem.control import Controller
+
+def get_tor_session():
+    session = requests.session()
+    # Tor uses the 9050 port as the default socks port
+    session.proxies = {'http':  'socks5://127.0.0.1:9050',
+                       'https': 'socks5://127.0.0.1:9050'}
+    return session
+
+def renew_connection():
+    with Controller.from_port(port = 9051) as controller:
+        controller.authenticate(password="d0nat3la")
+        controller.signal(Signal.NEWNYM)
 
 regex_phone = re.compile(r'\d{3}/\d{3}-\d{3,4}')
 
@@ -34,10 +48,15 @@ def collect_page(link):
     end = end.split("/")
     num_of_pages = int(end[-1])
     """
+    session = get_tor_session()
     for i in range(30):
 
         url = link+pagination+str(i+1)
-        res = requests.get(url)
+        try: 
+            res = session.get(url)
+        except:
+            print("Neuspelo skidanje")
+            continue
         #res = open(test_link,"rb")
         soup = bs4.BeautifulSoup(res.text,features="html.parser")
 
@@ -49,10 +68,12 @@ def collect_page(link):
         except:continue
         #try:
         for element in elements:
+            person_name = ""
             name = ""
             address = ""
             phone = ""
-            about = ""    
+            note = ""  
+            email = ""  
             name = element.find("a", class_="narandzastiLinkG").text
             address_phone = element.find("div", id = "podaciIzPublikacijeRezultati")
             try: phone = regex_phone.search(address_phone.text).group()
@@ -61,16 +82,17 @@ def collect_page(link):
             if len(address_phone) < 3: continue
             address = address_phone[0].text
             
-            about = element.find("h2").text.strip()
+            note = element.find("h2").text.strip()
             if phone == "":
                 continue
-            contacts.append({"name":name,"phone":phone,"address":address,"industry":about})
+            contacts.append({"person_name":person_name,"name":name,"phone":phone,"address":address,"email":email,"note":note})
         #except: pass
             
         global total
         total += 1
         print("Procitana " +str(total)+" stranica.")
-        time.sleep(10)
+        renew_connection()
+        time.sleep(5)
         
 
     print("Procitana kategorija!")
@@ -80,24 +102,38 @@ def write_to_excel():
     sheet1 = wb.add_sheet("Sheet1")
     
     #INIT SHEET COLUMNS
-    sheet1.write(0,0,"Naziv Firme")
-    sheet1.write(0,1,"Broj Telefona")
+    sheet1.write(0,0,"Ime i Prezime")
+    sheet1.write(0,1,"Naziv Firme")
     sheet1.write(0,2,"Adresa")
-    sheet1.write(0,3,"Cime se bave")
-    #sheet1.write(0,4,"Broj zaposlenih")
-
+    sheet1.write(0,3,"Telefon")
+    sheet1.write(0,4,"E-mail")
+    sheet1.write(0,5,"Note")
     
     for i,contact in enumerate(contacts):
-        sheet1.write(i+1,0,contact["name"])
-        sheet1.write(i+1,1,contact["phone"])
+        sheet1.write(i+1,0,contact["person_name"])
+        sheet1.write(i+1,1,contact["name"])
         sheet1.write(i+1,2,contact["address"])
-        sheet1.write(i+1,3,contact["industry"])
+        sheet1.write(i+1,3,contact["phone"])
+        sheet1.write(i+1,4,contact["email"])
+        sheet1.write(i+1,5,contact["note"])
         #sheet1.write(i+1,4,contact["employees"])
     
     
     wb.save(excel_name+".xls")
     print("Ispisano u Fajl")
 
+def write_to_csv():
+
+    csv = open(excel_name+".csv","w",encoding="utf-8")
+    
+    #WRITTE HEADER
+    csv.write("Ime i prezime,Naziv Firme,Adresa,Telefon,E-mail,Note\n")
+    
+
+    for contact in contacts:
+        contact["address"].replce(",","")
+        csv.write(contact["person_name"]+","+contact["name"]+","+contact["address"]+","+contact["phone"]+","+contact["email"]+","+contact["note"]+"\n")
+    csv.close()
 
 #-----------------MAIN---------------------
 
@@ -108,6 +144,7 @@ for link in links:
     collect_page(link)
    #except:pass
 write_to_excel()
+write_to_csv()
 print("Gotovo!")
 
 
